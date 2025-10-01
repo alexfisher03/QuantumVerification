@@ -1,4 +1,3 @@
-# unchanged api with tiny additions for exp awareness
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from time import perf_counter_ns

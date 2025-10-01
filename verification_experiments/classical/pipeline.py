@@ -1,4 +1,3 @@
-# parameterized classical 2 stage pipeline
 from typing import Dict, Set
 from verification_experiments.common.config import (
     get_signal_order, get_unsafe_set, ExpName, StageName

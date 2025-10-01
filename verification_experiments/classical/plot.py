@@ -1,4 +1,4 @@
-# small multiples one subplot per experiment linear y
+# multi engine small multiples with scienceplots
 # comments are lowercase no punctuation
 
 from __future__ import annotations
@@ -6,69 +6,118 @@ import json
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+import scienceplots  # required
 
 RESULTS_DIR = Path("verification_experiments/classical/results")
 
-def _load_json(p: Path):
+ENG_ORDER = ["classical", "cai", "quantum"]
+ENG_COLORS = {
+    "classical": "#4c78a8",
+    "cai": "#f28e2b",
+    "quantum": "#59a14f",
+}
+
+def _load(p: Path):
     with open(p, "r") as f:
         return json.load(f)
 
+def _gather():
+    files = sorted(RESULTS_DIR.glob("*_metrics.json"))
+    out = {}  # exp -> engine -> {r1,r2}
+    engines_seen = set()
+    for p in files:
+        d = _load(p)
+        exp = d.get("exp") or p.stem.split("_")[0]
+        eng = d.get("engine", "classical")
+        r1 = d["stage1"]["runtime_ms"]
+        r2 = d["stage2"]["runtime_ms"]
+        out.setdefault(exp, {})[eng] = {"r1": r1, "r2": r2}
+        engines_seen.add(eng)
+    return out, [e for e in ENG_ORDER if e in engines_seen]
+
 def main():
-    candidates = [RESULTS_DIR / "exp1_baseline_metrics.json",
-                  RESULTS_DIR / "exp2_baseline_metrics.json"]
-    present = [p for p in candidates if p.exists()]
-    if not present:
-        present = sorted(RESULTS_DIR.glob("*_baseline_metrics.json"))
-    if not present:
+    plt.style.use(["science", "no-latex"])
+    plt.rcParams.update({
+        "figure.dpi": 200,
+        "savefig.dpi": 300,
+        "font.size": 9,
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "axes.linewidth": 0.8,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "axes.grid": True,
+        "grid.linestyle": "--",
+        "grid.alpha": 0.25,
+    })
+
+    data, engines = _gather()
+    if not data:
         print("no metrics found")
         return
 
-    data = [_load_json(p) for p in present]
-    exps = [d.get("exp", p.stem.split("_")[0]) for d, p in zip(data, present)]
-
-    r1 = [d["stage1"]["runtime_ms"] for d in data]
-    r2 = [d["stage2"]["runtime_ms"] for d in data]
+    exps = ["exp1", "exp2"]
+    exps = [e for e in exps if e in data] or list(data.keys())
 
     n = len(exps)
-    fig_w = max(6, 5 * n)
-    fig, axes = plt.subplots(1, n, figsize=(fig_w, 5), dpi=150, squeeze=False)
-    axes = axes[0]
+    fig_w = max(6, 4.3 * n)
+    fig, axes = plt.subplots(1, n, figsize=(fig_w, 4.0), constrained_layout=False)
+    if n == 1:
+        axes = [axes]
+    fig.subplots_adjust(left=0.10, right=0.98, top=0.82, bottom=0.24, wspace=0.28)
 
-    # stage colors consistent across experiments
-    stage_colors = ["#007bff", "#ff5e00"]
+    stages = ["stage 1", "stage 2"]
+    x = np.arange(2)
+
+    m = len(engines)
+    width = min(0.22, 0.7 / max(m, 1))
+    gap = 0.04
+    offsets = [(i - (m - 1) / 2) * (width + gap) for i in range(m)]
 
     for i, ax in enumerate(axes):
-        x = np.array([0, 1])
-        vals = [r1[i], r2[i]]
-        ax.bar(x, vals, width=0.48, color=stage_colors, alpha=0.95)
+        exp = exps[i]
+        r1_vals = []
+        r2_vals = []
+        for eng in engines:
+            v = data.get(exp, {}).get(eng)
+            r1_vals.append(v["r1"] if v else 0.0)
+            r2_vals.append(v["r2"] if v else 0.0)
 
-        ax.set_title(exps[i], fontsize=10)
-        ax.set_xticks(x)
-        ax.set_xticklabels(["stage 1", "stage 2"], fontsize=9)
-        ax.grid(axis="y", linestyle="--", alpha=0.3)
+        ymax = max([*r1_vals, *r2_vals, 1e-9])
+        ax.set_ylim(0, ymax * 1.20)
+        ax.set_title(exp)
+        ax.set_xticks(x, stages)
 
-        ymax = max(vals) if max(vals) > 0 else 1.0
-        ax.set_ylim(0, ymax * 1.18)
-
+        # show y ticks on all subplots
         if i == 0:
-            ax.set_ylabel("runtime ms", fontsize=9)
-        else:
-            ax.set_yticklabels([])
+            ax.set_ylabel("runtime ms")
+        ax.tick_params(axis="y", which="both", labelleft=True)
 
-    legend_patches = [Patch(facecolor=stage_colors[0], label="stage 1 runtime"),
-                    Patch(facecolor=stage_colors[1], label="stage 2 runtime")]
-    fig.legend(handles=legend_patches, loc="lower center", ncol=2, frameon=False, fontsize=9,
-            bbox_to_anchor=(0.5, -0.02))
+        for j, eng in enumerate(engines):
+            xpos = x + offsets[j]
+            vals = [r1_vals[j], r2_vals[j]]
+            ax.bar(
+                xpos,
+                vals,
+                width=width,
+                color=ENG_COLORS.get(eng, "#666"),
+                label=eng,
+                alpha=0.95,
+                edgecolor="#222",
+                linewidth=0.6,
+            )
 
-    fig.suptitle("Classical Baseline Runtime Per Experiment", fontsize=10, y=0.98)
-    fig.tight_layout(rect=[0, 0.08, 1, 0.94])
+    # legend bottom center
+    handles = [plt.Rectangle((0, 0), 1, 1, color=ENG_COLORS.get(e, "#666"), ec="#222") for e in engines]
+    fig.legend(handles, engines, loc="lower center", ncol=len(engines), frameon=False, bbox_to_anchor=(0.5, 0.06))
 
+    fig.suptitle("runtime per experiment and stage for all three engines", y=0.96, fontsize=11)
 
-    outfile = RESULTS_DIR / "baseline_grouped.png"
-    fig.savefig(outfile)
+    out_png = RESULTS_DIR / "baseline_grouped.png"
+
+    fig.savefig(out_png)
     plt.close(fig)
-    print(f"[OK] wrote {outfile}")
+    print(f"[OK] wrote {out_png}")
 
 if __name__ == "__main__":
     main()

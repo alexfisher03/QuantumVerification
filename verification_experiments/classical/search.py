@@ -38,6 +38,7 @@ def main():
     elif args.stage == "2":
         # light console output for stage 2
         print(f"exp {exp} n {n1} stage2 count {report.stage2.count} runtime_ms {report.timing_stage2.total_ns/1e6:.3f}")
+        print_report(report)
 
     # always write consistent artifacts
     metrics_path = OUT_DIR / f"{exp}_baseline_metrics.json"
